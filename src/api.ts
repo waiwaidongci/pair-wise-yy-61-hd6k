@@ -1,5 +1,6 @@
 import { createApi } from '@reduxjs/toolkit/query/react';
 import type { BaseQueryFn } from '@reduxjs/toolkit/query';
+import { findDependencyCycle } from './graph';
 
 export type WorkCard = {
   id: string;
@@ -11,11 +12,14 @@ export type WorkCard = {
   tolerance: string;
   evidence: string;
   witness: string;
-  status: '未开始' | '执行中' | '待授权' | '已完成';
+  status: '未开始' | '执行中' | '待授权' | '已完成' | '已失效';
   measurement: string;
   finding: string;
   stage: string;
 };
+
+/** 服务端当前关系版本：工卡依赖、执行状态、放行门禁共用这一份版本。 */
+export const SERVER_RELATION_VERSION = 2;
 
 const packageData = {
   id: 'WP-B7891-04',
@@ -27,6 +31,7 @@ const packageData = {
   plannedEnd: '2026-09-30 18:00',
   revision: 'WP R7',
   serverRevision: 7,
+  relationVersion: SERVER_RELATION_VERSION,
   tasks: [
     { id: 'CARD-01', title: '右主起落架收放检查', zone: '起落架舱 RH', revision: 'R7', estimated: 3.5, dependencies: [], tolerance: '间隙 1.2–2.0 mm', evidence: '近照 + 动作记录', witness: '检验员', status: '已完成', measurement: '1.62 mm', finding: '正常', stage: '机械签署' },
     { id: 'CARD-02', title: '发动机 2 风扇叶片孔探', zone: '发动机 2', revision: 'R7', estimated: 4.2, dependencies: ['CARD-01'], tolerance: '凹坑 ≤ 0.3 mm', evidence: '孔探照片 + 视频', witness: '发动机工程师', status: '执行中', measurement: '', finding: '', stage: '发动机签署' },
@@ -49,6 +54,22 @@ const mockBaseQuery: BaseQueryFn = async (arg) => {
   return { error: { status: 404, data: 'Not found' } };
 };
 
+export type RelationChangePayload = { cardId: string; dependencies: string[]; version: number; actor: string };
+
+/** 服务端最近一次生效的关系变更，用于 409 时把先到者的结果回传给后到者。 */
+let lastRelationChange: RelationChangePayload | null = null;
+
+/** 服务端落库：成环拒绝，否则应用依赖并递增关系版本。 */
+function applyServerRelation(cardId: string, dependencies: string[], actor: string): { cycle: string[] | null } {
+  const nextTasks = packageData.tasks.map((task) => (task.id === cardId ? { ...task, dependencies } : task));
+  const cycle = findDependencyCycle(nextTasks);
+  if (cycle) return { cycle };
+  packageData.tasks = nextTasks;
+  packageData.relationVersion += 1;
+  lastRelationChange = { cardId, dependencies, version: packageData.relationVersion, actor };
+  return { cycle: null };
+}
+
 export const maintenanceApi = createApi({
   reducerPath: 'maintenanceApi',
   baseQuery: mockBaseQuery,
@@ -67,8 +88,48 @@ export const maintenanceApi = createApi({
         return { data: { accepted: true, revision: packageData.serverRevision + 1 } };
       },
       invalidatesTags: ['Package']
+    }),
+    updateRelations: builder.mutation<
+      { applied: boolean; relationVersion: number },
+      { cardId: string; dependencies: string[]; expectedRelationVersion: number; actor: string; simulateFailure?: boolean }
+    >({
+      queryFn: async (payload) => {
+        await new Promise((resolve) => setTimeout(resolve, 260));
+        if (payload.simulateFailure) {
+          return { error: { status: 500, data: { message: '写入失败：关系存储不可用，服务端未产生任何变更。' } } };
+        }
+        if (payload.expectedRelationVersion !== packageData.relationVersion) {
+          return {
+            error: {
+              status: 409,
+              data: {
+                message: `版本冲突：另一工艺员已先将关系版本升至 V${packageData.relationVersion}，先到者生效，本次提交已留存为冲突草稿。`,
+                currentVersion: packageData.relationVersion,
+                winningChange: lastRelationChange
+              }
+            }
+          };
+        }
+        const { cycle } = applyServerRelation(payload.cardId, payload.dependencies, payload.actor);
+        if (cycle) {
+          return { error: { status: 422, data: { message: `新关系成环，已拒绝：${cycle.join(' → ')}`, cycle } } };
+        }
+        return { data: { applied: true, relationVersion: packageData.relationVersion } };
+      },
+      invalidatesTags: ['Package']
+    }),
+    externalRelationChange: builder.mutation<{ relationVersion: number }, { cardId: string; dependencies: string[]; actor: string }>({
+      queryFn: async (payload) => {
+        await new Promise((resolve) => setTimeout(resolve, 160));
+        const { cycle } = applyServerRelation(payload.cardId, payload.dependencies, payload.actor);
+        if (cycle) {
+          return { error: { status: 422, data: { message: `新关系成环，已拒绝：${cycle.join(' → ')}`, cycle } } };
+        }
+        return { data: { relationVersion: packageData.relationVersion } };
+      },
+      invalidatesTags: ['Package']
     })
   })
 });
 
-export const { useGetWorkPackageQuery, useSubmitCardMutation } = maintenanceApi;
+export const { useGetWorkPackageQuery, useSubmitCardMutation, useUpdateRelationsMutation, useExternalRelationChangeMutation } = maintenanceApi;
