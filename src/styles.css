@@ -152,6 +152,23 @@ button, input, textarea, select { font: inherit; }
 .audit-row { display: grid; grid-template-columns: 20px 1fr; gap: 7px; padding: 12px 14px 0; }
 .timeline-dot { width: 9px; height: 9px; margin-top: 5px; border-radius: 50%; background: #2875a8; box-shadow: 0 0 0 3px #e1eff7; }
 .audit-row > div { padding-bottom: 12px; border-bottom: 1px solid #edf1f3; }
+
+.meta-actions { display: flex; gap: 8px; padding: 11px 14px; border-top: 1px solid #edf1f3; }
+.dialog-hint { margin: 0 0 12px; font-size: 11px; color: var(--muted); line-height: 1.6; }
+.dep-checklist { display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow: auto; }
+.dep-check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #354a58; }
+.dialog-cycle { margin-top: 12px; }
+.drafts-panel { border-color: #efd5ae; background: #fffaf0; }
+.drafts-panel .panel-head { border-bottom-color: #efd5ae; }
+.draft-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; border-bottom: 1px solid #f0e2c8; }
+.draft-row:last-child { border-bottom: 0; }
+.draft-row strong, .draft-row small { display: block; }
+.draft-row strong { font-size: 11px; }
+.draft-row small { font-size: 9px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+.draft-actions { display: flex; gap: 6px; flex: none; }
+.review-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.empty-hint { padding: 30px; text-align: center; color: var(--muted); font-size: 12px; }
+.cycle-example-btn { margin-left: 10px; }
 .audit-row strong { font-size: 11px; }
 .audit-row p { margin: 5px 0; font-size: 10px; color: #596c78; }
 .audit-row small { font-size: 9px; color: var(--muted); }
